@@ -1,3 +1,9 @@
+nestjs/.nest
 nestjs/node_modules
 nestjs/.history
 nestjs/dist
+
+nextjs/.next
+nextjs/node_modules
+nextjs/.history
+nextjs/dist
