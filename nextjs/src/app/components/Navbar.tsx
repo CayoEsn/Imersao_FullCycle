@@ -8,7 +8,7 @@ import Image from "next/image";
 export default function DefaultNavbar() {
   const pathname = usePathname();
   const params = useParams();
-
+  
   return (
     <Navbar fluid rounded>
       <Navbar.Brand href="https://flowbite-react.com">

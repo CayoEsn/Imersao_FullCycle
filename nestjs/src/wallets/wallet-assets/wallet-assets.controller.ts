@@ -7,7 +7,7 @@ import {
   Post,
   Sse,
 } from '@nestjs/common';
-import { WalletAssetsService } from './wallets-assets.service';
+import { WalletAssetsService } from './wallet-assets.service';
 import { Observable, map } from 'rxjs';
 
 @Controller('wallets/:wallet_id/assets')

@@ -1,8 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma/prisma.service';
 import { InitTransactionDto, InputExecuteTransactionDto } from './order.dto';
-import { PrismaService } from 'src/prisma/prisma/prisma.service';
-import { OrderStatus, OrderType } from '@prisma/client';
+import { Order, OrderStatus, OrderType } from '@prisma/client';
 import { ClientKafka } from '@nestjs/microservices';
+import { Observable } from 'rxjs';
+import { Order as OrderSchema } from './order.schema';
+import { Model } from 'mongoose';
+import { InjectModel } from '@nestjs/mongoose';
 
 @Injectable()
 export class OrdersService {
@@ -10,6 +14,7 @@ export class OrdersService {
     private prismaService: PrismaService,
     @Inject('ORDERS_PUBLISHER')
     private readonly kafkaClient: ClientKafka,
+    @InjectModel(OrderSchema.name) private orderModel: Model<OrderSchema>,
   ) {}
 
   all(filter: { wallet_id: string }) {
@@ -27,7 +32,7 @@ export class OrdersService {
         },
       },
       orderBy: {
-        update_at: 'desc',
+        updated_at: 'desc',
       },
     });
   }
@@ -48,18 +53,18 @@ export class OrdersService {
 
     this.kafkaClient.emit('input', {
       order_id: order.id,
-      investor_id: input.wallet_id,
-      asset_id: input.asset_id,
-      // current_shares: input.shares,
-      shares: input.shares,
-      price: input.price,
-      order_type: input.type,
+      investor_id: order.wallet_id,
+      asset_id: order.asset_id,
+      //current_shares: order.shares,
+      shares: order.shares,
+      price: order.price,
+      order_type: order.type,
     });
     return order;
   }
 
   async executeTransaction(input: InputExecuteTransactionDto) {
-    this.prismaService.$transaction(async (prisma) => {
+    return this.prismaService.$transaction(async (prisma) => {
       const order = await prisma.order.findUniqueOrThrow({
         where: { id: input.order_id },
       });
@@ -85,6 +90,14 @@ export class OrdersService {
         await prisma.asset.update({
           where: { id: order.asset_id },
           data: {
+            price: input.price,
+          },
+        });
+
+        await this.prismaService.assetDaily.create({
+          data: {
+            asset_id: order.asset_id,
+            date: new Date(),
             price: input.price,
           },
         });
@@ -126,6 +139,40 @@ export class OrdersService {
           });
         }
       }
+    });
+  }
+
+  subscribeEvents(
+    wallet_id: string,
+  ): Observable<{ event: 'order-created' | 'order-updated'; data: Order }> {
+    return new Observable((observer) => {
+      this.orderModel
+        .watch(
+          [
+            {
+              $match: {
+                $or: [{ operationType: 'insert' }, { operationType: 'update' }],
+                'fullDocument.wallet_id': wallet_id,
+              },
+            },
+          ],
+          { fullDocument: 'updateLookup' },
+        )
+        .on('change', async (data) => {
+          const order = await this.prismaService.order.findUnique({
+            where: {
+              id: data.fullDocument._id + '',
+            },
+          });
+
+          observer.next({
+            event:
+              data.operationType === 'insert'
+                ? 'order-created'
+                : 'order-updated',
+            data: order,
+          });
+        });
     });
   }
 }
